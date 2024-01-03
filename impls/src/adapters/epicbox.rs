@@ -51,8 +51,6 @@ use tungstenite::Error as tungsteniteError;
 use tungstenite::{protocol::WebSocket, stream::MaybeTlsStream};
 use tungstenite::{Error as ErrorTungstenite, Message};
 
-// for 2.0.0 protocol
-
 use epic_wallet_libwallet::InitTxArgs;
 use std::time::Instant;
 
@@ -74,7 +72,6 @@ const CONNECTION_ERR_MSG: &str = "\nCan't connect to the epicbox server!\n\
 	Check your epic-wallet.toml settings and make sure epicbox domain is correct.\n";
 const DEFAULT_CHALLENGE_RAW: &str = "7WUDtkSaKyGRUnQ22rE3QUXChV8DmA6NnunDYP4vheTpc";
 const EPICBOX_PROTOCOL_VERSION: &str = "2.0.0";
-const EPICBOX_SUBSCRIPTION_INTERVAL: u64 = 60;
 
 /// Epicbox 'plugin' implementation
 pub enum CloseReason {
@@ -224,23 +221,13 @@ impl EpicboxChannel {
 
 		let container = Container::new(config.clone());
 
-		let (tx, rx): (Sender<bool>, Receiver<bool>) = channel();
+		let (tx, _rx): (Sender<bool>, Receiver<bool>) = channel();
 		let listener = start_epicbox(container.clone(), wallet, keychain_mask, config, tx).unwrap();
 
 		container
 			.lock()
 			.listeners
 			.insert(ListenerInterface::Epicbox, listener);
-		//warn!("Waitng for rx");
-
-		loop {
-			std::thread::sleep(std::time::Duration::from_secs(1));
-			if rx.recv().unwrap() {
-				break;
-			}
-		}
-
-		//warn!("After rx");
 
 		let vslate = VersionedSlate::into_version(slate.clone(), SlateVersion::V2);
 
@@ -714,15 +701,8 @@ impl EpicboxBroker {
 		};
 
 		let subscribe = DEFAULT_CHALLENGE_RAW;
-
 		let ver = EPICBOX_PROTOCOL_VERSION;
-
 		let mut last_message_id_v2 = String::from("");
-
-		let mut tester_challenge = 0;
-		let mut fornow = 0;
-
-		let now = Instant::now();
 
 		let res = loop {
 			let err = client.sender.lock().read();
@@ -757,25 +737,7 @@ impl EpicboxBroker {
 
 						match response {
 							ProtocolResponseV2::Challenge { str } => {
-								tester_challenge += 1;
-								fornow += 1;
 								client.challenge = Some(str.clone());
-								if tester_challenge == 1 {
-									client
-										.challenge_send()
-										.map_err(|_| {
-											error!("Error attempting to send Challenge!");
-										})
-										.unwrap();
-								} else {
-									tester_challenge = 0;
-								}
-
-								if fornow >= 10 {
-									fornow = 0;
-									let elapsed_time = now.elapsed();
-									warn!("Still receiving data from epicbox after {:?} without disconection.", elapsed_time);
-								}
 
 								if first_run {
 									client
@@ -784,13 +746,6 @@ impl EpicboxBroker {
 										.unwrap();
 
 									first_run = false;
-
-									client
-										.challenge_send()
-										.map_err(|_| {
-											error!("Error attempting to send Challenge!");
-										})
-										.unwrap();
 
 									if !self.start_subscribe {
 										client
@@ -801,23 +756,20 @@ impl EpicboxBroker {
 											.unwrap();
 									} else {
 										debug!("Starting epicbox subscription...");
-
-										let signature =
-											sign_challenge(&subscribe, &secret_key)?.to_hex();
-										let request_sub = ProtocolRequestV2::Subscribe {
-											address: client.address.public_key.to_string(),
-											ver: ver.to_string(),
-											signature,
-										};
-
-										client
-											.send(&request_sub)
-											.map_err(|_| {
-												error!("Error attempting to send Subscribe")
-											})
-											.unwrap();
 									}
 								}
+
+								let signature = sign_challenge(&subscribe, &secret_key)?.to_hex();
+								let request_sub = ProtocolRequestV2::Subscribe {
+									address: client.address.public_key.to_string(),
+									ver: ver.to_string(),
+									signature,
+								};
+
+								client
+									.send(&request_sub)
+									.map_err(|_| error!("Error attempting to send Subscribe"))
+									.unwrap();
 							}
 							ProtocolResponseV2::Slate {
 								from,
@@ -827,12 +779,15 @@ impl EpicboxBroker {
 								ver: _, // unused, ignore
 								epicboxmsgid,
 							} => {
-								client
-									.made_send(epicboxmsgid.clone())
-									.map_err(|_| {
-										error!("Error attempting to send 'made' message!");
-									})
-									.unwrap();
+								match client.made_send(epicboxmsgid.clone()) {
+									Ok(()) => { /* do nothing */ }
+									Err(e) => {
+										error!(
+											"Error attempting to send 'made' message!: {}",
+											e.to_string()
+										);
+									}
+								}
 
 								if last_message_id_v2 != epicboxmsgid {
 									last_message_id_v2 = epicboxmsgid.clone();
@@ -900,26 +855,6 @@ impl EpicboxBroker {
 							},
 							ProtocolResponseV2::Ok {} => {
 								info!("Subscription Ok.");
-								let duration =
-									std::time::Duration::from_secs(EPICBOX_SUBSCRIPTION_INTERVAL);
-								std::thread::sleep(duration);
-								info!("New subscription...");
-								let signature = sign_challenge(&subscribe, &secret_key)?.to_hex();
-								let request_sub = ProtocolRequestV2::Subscribe {
-									address: client.address.public_key.to_string(),
-									ver: ver.to_string(),
-									signature,
-								};
-
-								match client.send(&request_sub) {
-									Ok(()) => { /* do nothing */ }
-									Err(e) => {
-										error!(
-											"Could not send subscribe request: {}",
-											e.to_string()
-										);
-									}
-								};
 							}
 						}
 					}
@@ -929,7 +864,7 @@ impl EpicboxBroker {
 					Message::Close(_) => {
 						info!("Close {:?}", &message.to_string());
 						handler.lock().on_close(CloseReason::Normal);
-						client.sender.lock().close(None).unwrap();
+						let _ = client.sender.lock().close(None);
 						break Ok(());
 					}
 				},
@@ -1007,20 +942,6 @@ where
 	C: NodeClient + 'static,
 	K: Keychain + 'static,
 {
-	fn challenge_send(&self) -> Result<(), Error> {
-		let request = ProtocolRequestV2::Challenge;
-
-		match self.send(&request) {
-			Ok(_) => {
-				self.tx.send(true).unwrap();
-				Ok(())
-			}
-			Err(e) => Err(Error::EpicboxTungstenite(
-				format!("Could not send 'Challenge' request! {}", e).into(),
-			)),
-		}
-	}
-
 	fn made_send(&self, epicboxmsgid: String) -> Result<(), Error> {
 		let chell = match &self.challenge {
 			None => String::from(""),
