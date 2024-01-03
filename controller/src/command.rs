@@ -611,6 +611,7 @@ where
 				};
 
 				epicbox_channel.send(wallet, km, &slate)?;
+				info!("Invoice successfully sent, to receive the payment make sure your epicbox listener is running");
 			}
 			"file" => {
 				info!("Saving invoice to file: {:?}", &args.dest);
