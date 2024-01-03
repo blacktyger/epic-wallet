@@ -51,6 +51,9 @@ use tungstenite::Error as tungsteniteError;
 use tungstenite::{protocol::WebSocket, stream::MaybeTlsStream};
 use tungstenite::{Error as ErrorTungstenite, Message};
 
+use epic_wallet_libwallet::InitTxArgs;
+use std::time::Instant;
+
 // Copyright 2019 The vault713 Developers
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
@@ -475,14 +478,30 @@ where
 		slate: &mut Slate,
 		_tx_proof: Option<&mut TxProof>,
 	) -> Result<bool, Error> {
-		/* build owner and foreign here */
-		//let wallet = self.wallet.clone();
-
 		wallet_lock!(self.wallet, w);
 
 		if slate.num_participants > slate.participant_data.len() {
-			if slate.tx.inputs().len() == 0 {
+			if slate.participant_data[0].id == 1 {
 				// TODO: invoicing
+				info!("Received new invoice slate (owner::process_invoice_tx)");
+				let args = InitTxArgs {
+					src_acct_name: None,
+					amount: slate.amount,
+					minimum_confirmations: 2,
+					max_outputs: 500,
+					num_change_outputs: 1,
+					selection_strategy_is_use_all: false,
+					..Default::default()
+				};
+
+				let ret_slate = owner::process_invoice_tx(
+					&mut **w,
+					self.keychain_mask.as_ref(),
+					&slate,
+					args,
+					false,
+				);
+				*slate = ret_slate.unwrap();
 			} else {
 				info!("Received new transaction (foreign::receive_tx)");
 				let ret_slate = foreign::receive_tx(
@@ -498,12 +517,20 @@ where
 
 			Ok(false)
 		} else {
-			info!("Finalize transaction (owner::finalize_tx)");
-			let slate = owner::finalize_tx(&mut **w, self.keychain_mask.as_ref(), slate)?;
-
-			info!("Post transaction to the network (owner::post_tx)");
-			owner::post_tx(w.w2n_client(), &slate.tx, false)?;
-			Ok(true)
+			if slate.participant_data[0].id == 1 {
+				info!("Finalize Invoice transaction (owner::finalize_invoice_tx)");
+				let ret_slate =
+					foreign::finalize_invoice_tx(&mut **w, self.keychain_mask.as_ref(), slate);
+				info!("Post transaction to the network (owner::post_tx)");
+				owner::post_tx(w.w2n_client(), &ret_slate.unwrap().tx, false)?;
+				Ok(true)
+			} else {
+				info!("Finalize transaction (owner::finalize_tx)");
+				let slate = owner::finalize_tx(&mut **w, self.keychain_mask.as_ref(), slate)?;
+				info!("Post transaction to the network (owner::post_tx)");
+				owner::post_tx(w.w2n_client(), &slate.tx, false)?;
+				Ok(true)
+			}
 		}
 	}
 }
@@ -529,19 +556,37 @@ where
 		let mut slate: Slate = slate.into();
 
 		if slate.num_participants > slate.participant_data.len() {
-			debug!(
-				"Slate [{}] received from [{}] for [{}] epics",
-				slate.id.to_string(),
-				from.to_string(),
-				amount_to_hr_string(slate.amount, false)
-			);
+			if slate.participant_data[0].id == 1 {
+				debug!(
+					"\nInvoice Slate [{}] received from [{}] for [{}] epics",
+					slate.id.to_string(),
+					from.to_string(),
+					amount_to_hr_string(slate.amount, false)
+				);
+			} else {
+				debug!(
+					"Init Slate [{}] received from [{}] for [{}] epics",
+					slate.id.to_string(),
+					from.to_string(),
+					amount_to_hr_string(slate.amount, false)
+				);
+			}
 		} else {
-			debug!(
-				"Slate [{}] received back from [{}] for [{}] epics",
-				slate.id.to_string(),
-				from.to_string(),
-				amount_to_hr_string(slate.amount, false)
-			);
+			if slate.participant_data[0].id == 1 {
+				debug!(
+					"\nInvoice Payment Slate [{}] received back from [{}] for [{}] epics",
+					slate.id.to_string(),
+					from.to_string(),
+					amount_to_hr_string(slate.amount, false)
+				);
+			} else {
+				debug!(
+					"Response Slate [{}] received back from [{}] for [{}] epics",
+					slate.id.to_string(),
+					from.to_string(),
+					amount_to_hr_string(slate.amount, false)
+				);
+			}
 		};
 
 		let result = self

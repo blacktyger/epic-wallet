@@ -1,0 +1,18 @@
+# ADDING THE INVOICE WORKFLOW TO EPICBOX TRANSACTION METHOD
+
+1) Update CLI API:
+    - Add the -m --method "epicbox" flag to `invoice` command
+    - Update -d --destination flag to parse an epicbox address
+
+
+
+2) Update HTTP API:
+    - Add new parameters to `issue_invoice_tx` method:
+        "send_args": {
+            "method": "epicbox",
+            "dest": "eSxyz..@btlabs.epicbox.tech",
+            "finalize": true,
+            "post_tx": true,
+            "fluff": false
+          }
+
