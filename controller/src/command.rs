@@ -575,6 +575,8 @@ where
 
 /// Issue Invoice Args
 pub struct IssueInvoiceArgs {
+	/// transaction method [file, epicbox]
+	pub method: String,
 	/// output file
 	pub dest: String,
 	/// issue invoice tx args
@@ -584,6 +586,7 @@ pub struct IssueInvoiceArgs {
 pub fn issue_invoice_tx<L, C, K>(
 	wallet: Arc<Mutex<Box<dyn WalletInst<'static, L, C, K>>>>,
 	keychain_mask: Option<&SecretKey>,
+	epicbox_config: Option<EpicboxConfig>,
 	args: IssueInvoiceArgs,
 ) -> Result<(), LibwalletError>
 where
@@ -593,9 +596,33 @@ where
 {
 	controller::owner_single_use(wallet.clone(), keychain_mask, |api, m| {
 		let slate = api.issue_invoice_tx(m, args.issue_args)?;
-		PathToSlate((&args.dest).into()).put_tx(&slate)?;
+
+		match args.method.as_str() {
+			"epicbox" => {
+				// TODO: Add address validation
+				info!("Sending invoice to epicbox: {:?}", &args.dest);
+				info!("{:?}", epicbox_config.clone().unwrap().epicbox_domain);
+				let epicbox_channel = Box::new(EpicboxChannel::new(&args.dest, epicbox_config))
+					.expect("error starting epicbox");
+
+				let km = match keychain_mask.as_ref() {
+					None => None,
+					Some(&m) => Some(m.to_owned()),
+				};
+
+				epicbox_channel.send(wallet, km, &slate)?;
+			}
+			"file" => {
+				info!("Saving invoice to file: {:?}", &args.dest);
+				PathToSlate((&args.dest).into()).put_tx(&slate)?;
+			}
+			_ => {
+				error!("Invalid transaction method");
+			}
+		}
 		Ok(())
 	})?;
+
 	Ok(())
 }
 
@@ -625,88 +652,93 @@ where
 	C: NodeClient + 'static,
 	K: keychain::Keychain + 'static,
 {
-	let slate = PathToSlate((&args.input).into()).get_tx()?;
-	controller::owner_single_use(wallet.clone(), keychain_mask, |api, m| {
-		if args.estimate_selection_strategies {
-			let strategies = vec!["smallest", "all"]
-				.into_iter()
-				.map(|strategy| {
-					let init_args = InitTxArgs {
-						src_acct_name: None,
-						amount: slate.amount,
-						minimum_confirmations: args.minimum_confirmations,
-						max_outputs: args.max_outputs as u32,
-						num_change_outputs: 1u32,
-						selection_strategy_is_use_all: strategy == "all",
-						estimate_only: Some(true),
-						..Default::default()
-					};
-					let slate = api.init_send_tx(m, init_args).unwrap();
-					(strategy, slate.amount, slate.fee)
-				})
-				.collect();
-			display::estimate(slate.amount, strategies, dark_scheme);
-		} else {
-			let init_args = InitTxArgs {
-				src_acct_name: None,
-				amount: 0,
-				minimum_confirmations: args.minimum_confirmations,
-				max_outputs: args.max_outputs as u32,
-				num_change_outputs: 1u32,
-				selection_strategy_is_use_all: args.selection_strategy == "all",
-				message: args.message.clone(),
-				ttl_blocks: args.ttl_blocks,
-				send_args: None,
-				..Default::default()
-			};
-			if let Err(e) = api.verify_slate_messages(m, &slate) {
-				error!("Error validating participant messages: {}", e);
-				return Err(e);
-			}
-			let result = api.process_invoice_tx(m, &slate, init_args);
-			let mut slate = match result {
-				Ok(s) => {
-					info!(
-						"Invoice processed: {} epic to {} (strategy '{}')",
-						core::amount_to_hr_string(slate.amount, false),
-						args.dest,
-						args.selection_strategy,
-					);
-					s
-				}
-				Err(e) => {
-					info!("Tx not created: {}", e);
+	if args.input != "None" {
+		let slate = PathToSlate((&args.input).into()).get_tx()?;
+		controller::owner_single_use(wallet.clone(), keychain_mask, |api, m| {
+			if args.estimate_selection_strategies {
+				let strategies = vec!["smallest", "all"]
+					.into_iter()
+					.map(|strategy| {
+						let init_args = InitTxArgs {
+							src_acct_name: None,
+							amount: slate.amount,
+							minimum_confirmations: args.minimum_confirmations,
+							max_outputs: args.max_outputs as u32,
+							num_change_outputs: 1u32,
+							selection_strategy_is_use_all: strategy == "all",
+							estimate_only: Some(true),
+							..Default::default()
+						};
+						let slate = api.init_send_tx(m, init_args).unwrap();
+						(strategy, slate.amount, slate.fee)
+					})
+					.collect();
+				display::estimate(slate.amount, strategies, dark_scheme);
+			} else {
+				let init_args = InitTxArgs {
+					src_acct_name: None,
+					amount: 0,
+					minimum_confirmations: args.minimum_confirmations,
+					max_outputs: args.max_outputs as u32,
+					num_change_outputs: 1u32,
+					selection_strategy_is_use_all: args.selection_strategy == "all",
+					message: args.message.clone(),
+					ttl_blocks: args.ttl_blocks,
+					send_args: None,
+					..Default::default()
+				};
+				if let Err(e) = api.verify_slate_messages(m, &slate) {
+					error!("Error validating participant messages: {}", e);
 					return Err(e);
 				}
-			};
+				let result = api.process_invoice_tx(m, &slate, init_args);
+				let mut slate = match result {
+					Ok(s) => {
+						info!(
+							"Invoice processed: {} epic to {} (strategy '{}')",
+							core::amount_to_hr_string(slate.amount, false),
+							args.dest,
+							args.selection_strategy,
+						);
+						s
+					}
+					Err(e) => {
+						info!("Tx not created: {}", e);
+						return Err(e);
+					}
+				};
 
-			match args.method.as_str() {
-				"file" => {
-					let slate_putter = PathToSlate((&args.dest).into());
-					slate_putter.put_tx(&slate)?;
-					api.tx_lock_outputs(m, &slate, 0)?;
-				}
-				"self" => {
-					api.tx_lock_outputs(m, &slate, 0)?;
-					let km = match keychain_mask.as_ref() {
-						None => None,
-						Some(&m) => Some(m.to_owned()),
-					};
-					controller::foreign_single_use(wallet, km, |api| {
-						slate = api.finalize_invoice_tx(&slate)?;
-						Ok(())
-					})?;
-				}
-				method => {
-					let sender = create_sender(method, &args.dest, tor_config)?;
-					slate = sender.send_tx(&slate)?;
-					api.tx_lock_outputs(m, &slate, 0)?;
+				match args.method.as_str() {
+					"file" => {
+						let slate_putter = PathToSlate((&args.dest).into());
+						slate_putter.put_tx(&slate)?;
+						api.tx_lock_outputs(m, &slate, 0)?;
+					}
+					"self" => {
+						api.tx_lock_outputs(m, &slate, 0)?;
+						let km = match keychain_mask.as_ref() {
+							None => None,
+							Some(&m) => Some(m.to_owned()),
+						};
+						controller::foreign_single_use(wallet, km, |api| {
+							slate = api.finalize_invoice_tx(&slate)?;
+							Ok(())
+						})?;
+					}
+					method => {
+						let sender = create_sender(method, &args.dest, tor_config)?;
+						slate = sender.send_tx(&slate)?;
+						api.tx_lock_outputs(m, &slate, 0)?;
+					}
 				}
 			}
-		}
+			Ok(())
+		})?;
 		Ok(())
-	})?;
-	Ok(())
+	} else {
+		info!("Not implemented yet!");
+		Ok(())
+	}
 }
 /// Info command args
 pub struct InfoArgs {

@@ -581,9 +581,14 @@ pub fn parse_issue_invoice_args(
 			false => None,
 		}
 	};
-	// dest (output file)
+	// destination - address or file name
 	let dest = parse_required(args, "dest")?;
+
+	// transaction method
+	let method = parse_required(args, "method")?;
+
 	Ok(command::IssueInvoiceArgs {
+		method: method.into(),
 		dest: dest.into(),
 		issue_args: IssueInvoiceTxArgs {
 			dest_acct_name: None,
@@ -652,19 +657,24 @@ pub fn parse_process_invoice_args(
 	let max_outputs = 500;
 
 	// file input only
-	let tx_file = parse_required(args, "input")?;
+	let tx_file = {
+		match args.is_present("input") {
+			true => args.value_of("input").unwrap(),
+			false => "None",
+		}
+	};
 
-	if prompt {
-		// Now we need to prompt the user whether they want to do this,
-		// which requires reading the slate
-
-		let slate = match PathToSlate((&tx_file).into()).get_tx() {
-			Ok(s) => s,
-			Err(e) => return Err(LibwalletError::ArgumentError(format!("{}", e))),
-		};
-
-		prompt_pay_invoice(&slate, method, dest)?;
-	}
+	// if prompt {
+	// 	// Now we need to prompt the user whether they want to do this,
+	// 	// which requires reading the slate
+	//
+	// 	let slate = match PathToSlate((&tx_file).into()).get_tx() {
+	// 		Ok(s) => s,
+	// 		Err(e) => return Err(LibwalletError::ArgumentError(format!("{}", e))),
+	// 	};
+	//
+	// 	prompt_pay_invoice(&slate, method, dest)?;
+	// }
 
 	Ok(command::ProcessInvoiceArgs {
 		message,
@@ -1017,7 +1027,7 @@ where
 		}
 		("invoice", Some(args)) => {
 			let a = arg_parse!(parse_issue_invoice_args(&args));
-			command::issue_invoice_tx(wallet, km, a)
+			command::issue_invoice_tx(wallet, km, Some(epicbox_config), a)
 		}
 		("pay", Some(args)) => {
 			let a = arg_parse!(parse_process_invoice_args(&args, !test_mode));

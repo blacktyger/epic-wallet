@@ -498,6 +498,7 @@ where
 		if slate.num_participants > slate.participant_data.len() {
 			if slate.tx.inputs().len() == 0 {
 				// TODO: invoicing
+				info!("Received new invoice");
 			} else {
 				info!("Received new transaction (foreign::receive_tx)");
 				let ret_slate = foreign::receive_tx(

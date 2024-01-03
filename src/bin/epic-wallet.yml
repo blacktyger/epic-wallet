@@ -232,10 +232,19 @@ subcommands:
             long: message
             takes_value: true
         - dest:
-            help: Name of destination slate output file
+            help: Receiver address or output file
             short: d
             long: dest
             takes_value: true
+        - method:
+            help: Transaction method used to send the invoice [file, epicbox]
+            short: m
+            long: method
+            default_value: "file"
+            takes_value: true
+            possible_values:
+              - file
+              - epicbox
   - pay:
       about: Spend coins to pay the provided invoice transaction
       args:
@@ -266,10 +275,11 @@ subcommands:
               - file
               - http
               - self
+              - epicbox
             default_value: file
             takes_value: true
         - dest:
-            help: Send the transaction to the provided server (start with http://) or save as file.
+            help: Send the transaction to the provided address or save as file.
             short: d
             long: dest
             takes_value: true
