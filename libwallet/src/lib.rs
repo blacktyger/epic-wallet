@@ -45,7 +45,7 @@ pub mod address;
 pub mod api_impl;
 mod base58;
 pub mod crypto;
-mod epicbox_address;
+pub mod epicbox_address;
 mod error;
 mod internal;
 pub mod message;

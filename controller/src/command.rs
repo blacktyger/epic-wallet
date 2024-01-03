@@ -40,6 +40,7 @@ use std::io::{Read, Write};
 use std::sync::Arc;
 use std::thread;
 
+use epic_wallet_libwallet::{Address, EpicboxAddress};
 use std::time::Duration;
 use uuid::Uuid;
 
@@ -599,19 +600,28 @@ where
 
 		match args.method.as_str() {
 			"epicbox" => {
-				// TODO: Add address validation
-				info!("Sending invoice to epicbox: {:?}", &args.dest);
-				info!("{:?}", epicbox_config.clone().unwrap().epicbox_domain);
-				let epicbox_channel = Box::new(EpicboxChannel::new(&args.dest, epicbox_config))
-					.expect("error starting epicbox");
+				/// Check if given address is valid
+				match <EpicboxAddress as Address>::from_str(&args.dest) {
+					Ok(_) => {
+						info!("Sending invoice to epicbox: {:?}", &args.dest);
+						info!("{:?}", epicbox_config.clone().unwrap().epicbox_domain);
+						let epicbox_channel =
+							Box::new(EpicboxChannel::new(&args.dest, epicbox_config))
+								.expect("error starting epicbox");
 
-				let km = match keychain_mask.as_ref() {
-					None => None,
-					Some(&m) => Some(m.to_owned()),
+						let km = match keychain_mask.as_ref() {
+							None => None,
+							Some(&m) => Some(m.to_owned()),
+						};
+
+						epicbox_channel.send(wallet, km, &slate)?;
+						info!("Invoice successfully sent, to receive the payment make sure your epicbox listener is running.");
+					}
+					Err(e) => {
+						error!("Invalid epicbox address");
+						return Err(e);
+					}
 				};
-
-				epicbox_channel.send(wallet, km, &slate)?;
-				info!("Invoice successfully sent, to receive the payment make sure your epicbox listener is running");
 			}
 			"file" => {
 				info!("Saving invoice to file: {:?}", &args.dest);
