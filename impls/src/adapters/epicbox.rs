@@ -228,12 +228,6 @@ impl EpicboxChannel {
 			.listeners
 			.insert(ListenerInterface::Epicbox, listener);
 
-		loop {
-			std::thread::sleep(std::time::Duration::from_secs(1));
-			if _rx.recv().unwrap() {
-				break;
-			}
-		}
 		let vslate = VersionedSlate::into_version(slate.clone(), SlateVersion::V2);
 
 		let _ = match container
