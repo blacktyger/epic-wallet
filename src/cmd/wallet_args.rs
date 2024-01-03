@@ -664,17 +664,17 @@ pub fn parse_process_invoice_args(
 		}
 	};
 
-	// if prompt {
-	// 	// Now we need to prompt the user whether they want to do this,
-	// 	// which requires reading the slate
-	//
-	// 	let slate = match PathToSlate((&tx_file).into()).get_tx() {
-	// 		Ok(s) => s,
-	// 		Err(e) => return Err(LibwalletError::ArgumentError(format!("{}", e))),
-	// 	};
-	//
-	// 	prompt_pay_invoice(&slate, method, dest)?;
-	// }
+	if prompt {
+		// Now we need to prompt the user whether they want to do this,
+		// which requires reading the slate
+
+		let slate = match PathToSlate((&tx_file).into()).get_tx() {
+			Ok(s) => s,
+			Err(e) => return Err(LibwalletError::ArgumentError(format!("{}", e))),
+		};
+
+		prompt_pay_invoice(&slate, method, dest)?;
+	}
 
 	Ok(command::ProcessInvoiceArgs {
 		message,

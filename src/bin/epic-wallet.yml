@@ -275,7 +275,6 @@ subcommands:
               - file
               - http
               - self
-              - epicbox
             default_value: file
             takes_value: true
         - dest:
@@ -289,7 +288,7 @@ subcommands:
             long: message
             takes_value: true
         - input:
-            help: Partial transaction to process, expects the invoicer's transaction file.
+            help: Partial transaction to process, expects the invoice's transaction file.
             short: i
             long: input
             takes_value: true
