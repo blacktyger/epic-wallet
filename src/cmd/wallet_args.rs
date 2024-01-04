@@ -117,7 +117,7 @@ where
 	}
 }
 
-fn prompt_pay_invoice(slate: &Slate, method: &str, dest: &str) -> Result<bool, LibwalletError> {
+pub fn prompt_pay_invoice(slate: &Slate, method: &str, dest: &str) -> Result<bool, LibwalletError> {
 	let interface = Arc::new(Interface::new("pay")?);
 	let amount = amount_to_hr_string(slate.amount, false);
 	interface.set_report_signal(Signal::Interrupt, true);

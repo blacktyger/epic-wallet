@@ -406,8 +406,7 @@ where
 		context.payment_proof_derivation_index = Some(deriv_path);
 	}
 
-	// Save the aggsig context in our DB for when we
-	// recieve the transaction back
+	// Save the aggsig context in our DB for when we receive the transaction back
 	{
 		let mut batch = w.batch(keychain_mask)?;
 		batch.save_private_context(slate.id.as_bytes(), 0, &context)?;
@@ -463,8 +462,7 @@ where
 		use_test_rng,
 	)?;
 
-	// Save the aggsig context in our DB for when we
-	// recieve the transaction back
+	// Save the aggsig context in our DB for when we receive the transaction back
 	{
 		let mut batch = w.batch(keychain_mask)?;
 		batch.save_private_context(slate.id.as_bytes(), 1, &context)?;
@@ -549,10 +547,10 @@ where
 		use_test_rng,
 	)?;
 
-	// Save the aggsig context in our DB for when we
-	// recieve the transaction back
+	// Save the aggsig context in our DB for when we receive the transaction back
 	{
 		let mut batch = w.batch(keychain_mask)?;
+		debug!("Saving tx data {}", slate.id);
 		batch.save_private_context(slate.id.as_bytes(), 0, &context)?;
 		batch.commit()?;
 	}

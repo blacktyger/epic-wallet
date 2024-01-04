@@ -52,7 +52,6 @@ use tungstenite::{protocol::WebSocket, stream::MaybeTlsStream};
 use tungstenite::{Error as ErrorTungstenite, Message};
 
 use epic_wallet_libwallet::InitTxArgs;
-
 // Copyright 2019 The vault713 Developers
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
@@ -499,8 +498,12 @@ where
 					&slate,
 					args,
 					false,
-				);
-				*slate = ret_slate.unwrap();
+				)
+				.map_err(|e| {
+					error!("Invoice can't be paid: {}", e);
+					e
+				})?;
+				*slate = ret_slate;
 			} else {
 				info!("Received new transaction (foreign::receive_tx)");
 				let ret_slate = foreign::receive_tx(

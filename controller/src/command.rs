@@ -600,11 +600,10 @@ where
 
 		match args.method.as_str() {
 			"epicbox" => {
-				/// Check if given address is valid
+				// Check if given address is valid
 				match <EpicboxAddress as Address>::from_str(&args.dest) {
 					Ok(_) => {
 						info!("Sending invoice to epicbox: {:?}", &args.dest);
-						info!("{:?}", epicbox_config.clone().unwrap().epicbox_domain);
 						let epicbox_channel =
 							Box::new(EpicboxChannel::new(&args.dest, epicbox_config))
 								.expect("error starting epicbox");
