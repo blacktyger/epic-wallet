@@ -550,7 +550,6 @@ where
 	// Save the aggsig context in our DB for when we receive the transaction back
 	{
 		let mut batch = w.batch(keychain_mask)?;
-		debug!("Saving tx data {}", slate.id);
 		batch.save_private_context(slate.id.as_bytes(), 0, &context)?;
 		batch.commit()?;
 	}

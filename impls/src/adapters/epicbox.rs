@@ -41,6 +41,7 @@ use std::thread::JoinHandle;
 
 use crate::libwallet::api_impl::foreign;
 use crate::libwallet::api_impl::owner;
+use epic_wallet_libwallet::api_impl::owner::tx_lock_outputs;
 use epic_wallet_util::epic_core::core::amount_to_hr_string;
 use std::net::TcpStream;
 use std::string::ToString;
@@ -479,9 +480,12 @@ where
 		wallet_lock!(self.wallet, w);
 
 		if slate.num_participants > slate.participant_data.len() {
+			// Handle init invoice slate
 			if slate.participant_data[0].id == 1 {
-				// TODO: invoicing
 				info!("Received new invoice slate (owner::process_invoice_tx)");
+
+				// Prepare invoice slate args
+				// TODO: make possible to provide these values via API
 				let args = InitTxArgs {
 					src_acct_name: None,
 					amount: slate.amount,
@@ -492,6 +496,7 @@ where
 					..Default::default()
 				};
 
+				// Process the invoice slate and handle the errors
 				let ret_slate = owner::process_invoice_tx(
 					&mut **w,
 					self.keychain_mask.as_ref(),
@@ -503,7 +508,13 @@ where
 					error!("Invoice can't be paid: {}", e);
 					e
 				})?;
+
+				// Add tx entry to database
+				tx_lock_outputs(&mut **w, self.keychain_mask.as_ref(), &slate, 0)?;
+
 				*slate = ret_slate;
+
+			// Handle init transaction slate
 			} else {
 				info!("Received new transaction (foreign::receive_tx)");
 				let ret_slate = foreign::receive_tx(
@@ -516,9 +527,9 @@ where
 				);
 				*slate = ret_slate.unwrap();
 			}
-
 			Ok(false)
 		} else {
+			// Handle paid invoice
 			if slate.participant_data[0].id == 1 {
 				info!("Finalize Invoice transaction (owner::finalize_invoice_tx)");
 				let ret_slate =
@@ -526,6 +537,8 @@ where
 				info!("Post transaction to the network (owner::post_tx)");
 				owner::post_tx(w.w2n_client(), &ret_slate.unwrap().tx, false)?;
 				Ok(true)
+
+			// Handle returned transaction slate
 			} else {
 				info!("Finalize transaction (owner::finalize_tx)");
 				let slate = owner::finalize_tx(&mut **w, self.keychain_mask.as_ref(), slate)?;
