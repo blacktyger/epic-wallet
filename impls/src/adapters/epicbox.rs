@@ -17,55 +17,34 @@ use crate::epicbox::protocol::{
 	ProtocolError, ProtocolRequest, ProtocolRequestV2, ProtocolResponseV2,
 };
 use crate::keychain::Keychain;
+use crate::libwallet::api_impl::{foreign, owner};
 use crate::libwallet::crypto::{sign_challenge, Hex};
 use crate::libwallet::message::EncryptedMessage;
-use crate::util::secp::key::PublicKey;
-
-use crate::libwallet::wallet_lock;
 use crate::libwallet::{
-	address, Address, EpicboxAddress, TxProof, DEFAULT_EPICBOX_PORT_443, DEFAULT_EPICBOX_PORT_80,
+	address, wallet_lock, Address, EpicboxAddress, NodeClient, Slate, SlateVersion, TxProof,
+	VersionedSlate, WalletInst, WalletLCProvider, DEFAULT_EPICBOX_PORT_443,
+	DEFAULT_EPICBOX_PORT_80,
 };
-use crate::libwallet::{NodeClient, WalletInst, WalletLCProvider};
-
-use crate::Error;
-
-use crate::libwallet::{Slate, SlateVersion, VersionedSlate};
-use crate::util::secp::key::SecretKey;
+use crate::util::secp::key::{PublicKey, SecretKey};
 use crate::util::Mutex;
+use crate::Error;
 
 use std::collections::HashMap;
 use std::fmt::{self, Debug};
-
-use std::sync::Arc;
-use std::thread::JoinHandle;
-
-use crate::libwallet::api_impl::foreign;
-use crate::libwallet::api_impl::owner;
-use epic_wallet_libwallet::api_impl::owner::tx_lock_outputs;
-use epic_wallet_util::epic_core::core::amount_to_hr_string;
 use std::net::TcpStream;
 use std::string::ToString;
 use std::sync::mpsc::{channel, Receiver, Sender};
+use std::sync::Arc;
 use std::thread::spawn;
+use std::thread::JoinHandle;
 use tungstenite::connect;
 use tungstenite::Error as tungsteniteError;
 use tungstenite::{protocol::WebSocket, stream::MaybeTlsStream};
 use tungstenite::{Error as ErrorTungstenite, Message};
 
+use epic_wallet_libwallet::api_impl::owner::tx_lock_outputs;
 use epic_wallet_libwallet::InitTxArgs;
-// Copyright 2019 The vault713 Developers
-//
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
-//
-//     http://www.apache.org/licenses/LICENSE-2.0
-//
-// Unless required by applicable law or agreed to in writing, software
-// distributed under the License is distributed on an "AS IS" BASIS,
-// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-// See the License for the specific language governing permissions and
-// limitations under the License.
+use epic_wallet_util::epic_core::core::amount_to_hr_string;
 
 const CONNECTION_ERR_MSG: &str = "\nCan't connect to the epicbox server!\n\
 	Check your epic-wallet.toml settings and make sure epicbox domain is correct.\n";
@@ -534,8 +513,10 @@ where
 				info!("Finalize Invoice transaction (owner::finalize_invoice_tx)");
 				let ret_slate =
 					foreign::finalize_invoice_tx(&mut **w, self.keychain_mask.as_ref(), slate);
+
 				info!("Post transaction to the network (owner::post_tx)");
 				owner::post_tx(w.w2n_client(), &ret_slate.unwrap().tx, false)?;
+
 				Ok(true)
 
 			// Handle returned transaction slate

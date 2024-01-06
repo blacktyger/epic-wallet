@@ -157,6 +157,9 @@ pub struct IssueInvoiceTxArgs {
 	/// down to the minimum slate version compatible with the current. If `None` the slate
 	/// is generated with the latest version.
 	pub target_slate_version: Option<u16>,
+	/// Sender arguments. If present, the underlying function will also attempt to send the
+	/// transaction to a destination and optionally finalize the result
+	pub send_args: Option<InitTxSendArgs>,
 }
 
 impl Default for IssueInvoiceTxArgs {
@@ -166,6 +169,7 @@ impl Default for IssueInvoiceTxArgs {
 			amount: 0,
 			message: None,
 			target_slate_version: None,
+			send_args: None,
 		}
 	}
 }

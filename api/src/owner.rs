@@ -35,6 +35,7 @@ use crate::libwallet::{
 use crate::util::logger::LoggingConfig;
 use crate::util::secp::key::SecretKey;
 use crate::util::{from_hex, static_secp_instance, Mutex, ZeroingString};
+use libwallet::Address;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{channel, Sender};
 use std::sync::Arc;
@@ -759,9 +760,51 @@ where
 		keychain_mask: Option<&SecretKey>,
 		args: IssueInvoiceTxArgs,
 	) -> Result<Slate, Error> {
-		let mut w_lock = self.wallet_inst.lock();
-		let w = w_lock.lc_provider()?.wallet_inst()?;
-		owner::issue_invoice_tx(&mut **w, keychain_mask, args, self.doctest_mode)
+		let send_args = args.send_args.clone();
+		let mut slate = {
+			let mut w_lock = self.wallet_inst.lock();
+			let w = w_lock.lc_provider()?.wallet_inst()?;
+			owner::issue_invoice_tx(&mut **w, keychain_mask, args, self.doctest_mode).unwrap()
+		};
+
+		// Helper functionality. If send arguments exist, attempt to send
+		// TODO: Add HTTP/Tor method.
+		match send_args {
+			Some(sa) => {
+				return match sa.method.as_ref() {
+					"epicbox" => {
+						// Check if given address is valid
+						match <EpicboxAddress as Address>::from_str(&sa.dest) {
+							Ok(_) => {
+								let epicbox_config_lock = self.epicbox_config.lock();
+								let epicbox_channel = Box::new(EpicboxChannel::new(
+									&sa.dest,
+									epicbox_config_lock.clone(),
+								))
+								.map_err(|e| Error::GenericError(format!("{}", e)))?;
+								let wallet = self.wallet_inst.clone();
+								let km = match keychain_mask.as_ref() {
+									None => None,
+									Some(&m) => Some(m.to_owned()),
+								};
+								slate = epicbox_channel.send(wallet, km, &slate)?;
+								self.tx_lock_outputs(keychain_mask, &slate, 1)?;
+								Ok(slate)
+							}
+							Err(e) => {
+								error!("Invalid epicbox address");
+								Err(e)
+							}
+						}
+					}
+					_ => {
+						error!("Unsupported payment method: {}", sa.method);
+						Err(Error::ClientCallback("Unsupported payment method".to_owned()).into())
+					}
+				};
+			}
+			None => Ok(slate),
+		}
 	}
 
 	/// Processes an invoice tranaction created by another party, essentially

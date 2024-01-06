@@ -595,6 +595,7 @@ pub fn parse_issue_invoice_args(
 			amount,
 			message,
 			target_slate_version,
+			send_args: None,
 		},
 	})
 }
