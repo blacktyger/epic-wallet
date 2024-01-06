@@ -21,13 +21,16 @@ use crate::libwallet::api_impl::{foreign, owner};
 use crate::libwallet::crypto::{sign_challenge, Hex};
 use crate::libwallet::message::EncryptedMessage;
 use crate::libwallet::{
-	address, wallet_lock, Address, EpicboxAddress, NodeClient, Slate, SlateVersion, TxProof,
-	VersionedSlate, WalletInst, WalletLCProvider, DEFAULT_EPICBOX_PORT_443,
+	address, wallet_lock, Address, EpicboxAddress, Error as LibwalletError, NodeClient, Slate,
+	SlateVersion, TxProof, VersionedSlate, WalletInst, WalletLCProvider, DEFAULT_EPICBOX_PORT_443,
 	DEFAULT_EPICBOX_PORT_80,
 };
 use crate::util::secp::key::{PublicKey, SecretKey};
 use crate::util::Mutex;
 use crate::Error;
+
+use linefeed::terminal::Signal;
+use linefeed::{Interface, ReadResult};
 
 use std::collections::HashMap;
 use std::fmt::{self, Debug};
@@ -221,6 +224,61 @@ impl EpicboxChannel {
 
 		let slate: Slate = VersionedSlate::into_version(slate.clone(), SlateVersion::V2).into();
 		Ok(slate)
+	}
+}
+
+pub fn prompt_pay_invoice(slate: &Slate) -> Result<bool, LibwalletError> {
+	let interface = Arc::new(Interface::new("pay")?);
+	let amount = amount_to_hr_string(slate.amount, false);
+	let fees = amount_to_hr_string(slate.fee, true);
+	interface.set_report_signal(Signal::Interrupt, true);
+	interface.set_prompt(
+		"To proceed, type the exact amount of the invoice as displayed above (or Q/q to quit) > ",
+	)?;
+	println!();
+	println!(
+		"This command will pay the amount specified in the invoice using your wallet's funds."
+	);
+	println!("After you confirm, the following will occur: ");
+	println!();
+	println!(
+		"* {} of your wallet funds will be added to the transaction to pay this invoice. \
+		You will also cover transaction fees: {}",
+		amount, fees
+	);
+	println!("* The resulting transaction will IMMEDIATELY be sent to the invoice issuer.");
+
+	println!();
+	println!("The invoice slate's participant info is:");
+	for m in slate.participant_messages().messages {
+		println!("{}", m);
+	}
+	println!("Please review the above information carefully before proceeding");
+	println!();
+	loop {
+		let res = interface.read_line().unwrap();
+		match res {
+			ReadResult::Eof => return Ok(false),
+			ReadResult::Signal(sig) => {
+				if sig == Signal::Interrupt {
+					interface.cancel_read_line()?;
+					return Err(LibwalletError::CancelledError);
+				}
+			}
+			ReadResult::Input(line) => {
+				match line.trim() {
+					"Q" | "q" => return Err(LibwalletError::CancelledError),
+					result => {
+						if result == amount {
+							return Ok(true);
+						} else {
+							println!("Please enter exact amount of the invoice as shown above or Q to quit");
+							println!();
+						}
+					}
+				}
+			}
+		}
 	}
 }
 
@@ -488,10 +546,15 @@ where
 					e
 				})?;
 
-				// Add tx entry to database
-				tx_lock_outputs(&mut **w, self.keychain_mask.as_ref(), &slate, 0)?;
+				// Ask user to confirm the invoice
+				prompt_pay_invoice(&ret_slate).map_err(|e| {
+					error!("Invoice declined: {}", e);
+					e
+				})?;
 
-				*slate = ret_slate;
+				// Add tx entry to database
+				tx_lock_outputs(&mut **w, self.keychain_mask.as_ref(), &ret_slate, 0)?;
+				*slate = ret_slate
 
 			// Handle init transaction slate
 			} else {
@@ -513,10 +576,8 @@ where
 				info!("Finalize Invoice transaction (owner::finalize_invoice_tx)");
 				let ret_slate =
 					foreign::finalize_invoice_tx(&mut **w, self.keychain_mask.as_ref(), slate);
-
 				info!("Post transaction to the network (owner::post_tx)");
 				owner::post_tx(w.w2n_client(), &ret_slate.unwrap().tx, false)?;
-
 				Ok(true)
 
 			// Handle returned transaction slate

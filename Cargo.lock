@@ -1237,6 +1237,7 @@ dependencies = [
  "hyper-timeout",
  "lazy_static",
  "libsqlite3-sys",
+ "linefeed",
  "log",
  "parking_lot 0.6.4",
  "rand 0.5.6",

@@ -70,8 +70,12 @@ fn prompt_password_confirm() -> ZeroingString {
 	let mut first = ZeroingString::from("first");
 	let mut second = ZeroingString::from("second");
 	while first != second {
-		first = prompt_password_stdout("Password: ");
-		second = prompt_password_stdout("Confirm Password: ");
+		first = ZeroingString::from(
+			rpassword::prompt_password_stdout("Password: ").unwrap_or("".to_string()),
+		);
+		second = ZeroingString::from(
+			rpassword::prompt_password_stdout("Confirm Password: ").unwrap_or("".to_string()),
+		);
 	}
 	first
 }
