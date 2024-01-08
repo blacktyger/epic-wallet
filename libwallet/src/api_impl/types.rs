@@ -148,7 +148,7 @@ pub struct IssueInvoiceTxArgs {
 	/// overriding whatever the active account is as set via the
 	/// [`set_active_account`](../epic_wallet_api/owner/struct.Owner.html#method.set_active_account) method.
 	pub dest_acct_name: Option<String>,
-	/// The invoice amount in nanoepics. (`1 G = 1_000_000_000nG`)
+	/// The invoice amount in nano epics. (`1 E = 1_000_000_000nE`)
 	#[serde(with = "secp_ser::string_or_u64")]
 	pub amount: u64,
 	/// Optional message, that will be signed

@@ -201,7 +201,6 @@ impl EpicboxChannel {
 		};
 
 		let container = Container::new(config.clone());
-
 		let (tx, _rx): (Sender<bool>, Receiver<bool>) = channel();
 		let listener = start_epicbox(container.clone(), wallet, keychain_mask, config, tx).unwrap();
 

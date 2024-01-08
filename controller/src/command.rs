@@ -40,7 +40,7 @@ use std::io::{Read, Write};
 use std::sync::Arc;
 use std::thread;
 
-use epic_wallet_libwallet::Address;
+use epic_wallet_libwallet::InitTxSendArgs;
 use std::time::Duration;
 use uuid::Uuid;
 
@@ -608,7 +608,6 @@ pub struct ProcessInvoiceArgs {
 pub fn process_invoice<L, C, K>(
 	wallet: Arc<Mutex<Box<dyn WalletInst<'static, L, C, K>>>>,
 	keychain_mask: Option<&SecretKey>,
-	tor_config: Option<TorConfig>,
 	args: ProcessInvoiceArgs,
 	dark_scheme: bool,
 ) -> Result<(), LibwalletError>
@@ -639,6 +638,15 @@ where
 				.collect();
 			display::estimate(slate.amount, strategies, dark_scheme);
 		} else {
+			let dest = args.dest;
+			let send_args = InitTxSendArgs {
+				method: args.method,
+				dest: dest.clone(),
+				finalize: true,
+				post_tx: true,
+				fluff: false,
+			};
+
 			let init_args = InitTxArgs {
 				src_acct_name: None,
 				amount: slate.amount,
@@ -648,7 +656,7 @@ where
 				selection_strategy_is_use_all: args.selection_strategy == "all",
 				message: args.message.clone(),
 				ttl_blocks: args.ttl_blocks,
-				send_args: None,
+				send_args: Some(send_args),
 				..Default::default()
 			};
 			if let Err(e) = api.verify_slate_messages(m, &slate) {
@@ -656,45 +664,21 @@ where
 				return Err(e);
 			}
 			let result = api.process_invoice_tx(m, &slate, init_args);
-			let mut slate = match result {
+			match result {
 				Ok(s) => {
 					info!(
 						"Invoice processed: {} epic to {} (strategy '{}')",
 						core::amount_to_hr_string(slate.amount, false),
-						args.dest,
+						dest,
 						args.selection_strategy,
 					);
 					s
 				}
 				Err(e) => {
-					info!("Tx not created: {}", e);
+					error!("Failed to pay the invoice: {}", e);
 					return Err(e);
 				}
 			};
-
-			match args.method.as_str() {
-				"file" => {
-					let slate_putter = PathToSlate((&args.dest).into());
-					slate_putter.put_tx(&slate)?;
-					api.tx_lock_outputs(m, &slate, 0)?;
-				}
-				"self" => {
-					api.tx_lock_outputs(m, &slate, 0)?;
-					let km = match keychain_mask.as_ref() {
-						None => None,
-						Some(&m) => Some(m.to_owned()),
-					};
-					controller::foreign_single_use(wallet, km, |api| {
-						slate = api.finalize_invoice_tx(&slate)?;
-						Ok(())
-					})?;
-				}
-				method => {
-					let sender = create_sender(method, &args.dest, tor_config)?;
-					slate = sender.send_tx(&slate)?;
-					api.tx_lock_outputs(m, &slate, 0)?;
-				}
-			}
 		}
 		Ok(())
 	})?;

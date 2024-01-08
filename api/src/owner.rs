@@ -664,15 +664,14 @@ where
 		keychain_mask: Option<&SecretKey>,
 		args: InitTxArgs,
 	) -> Result<Slate, Error> {
-		let send_args = args.send_args.clone();
 		let mut slate = {
 			let mut w_lock = self.wallet_inst.lock();
 			let w = w_lock.lc_provider()?.wallet_inst()?;
-			owner::init_send_tx(&mut **w, keychain_mask, args, self.doctest_mode)?
+			owner::init_send_tx(&mut **w, keychain_mask, args.clone(), self.doctest_mode)?
 		};
 
 		// Helper functionality. If send arguments exist, attempt to send
-		match send_args {
+		match args.send_args {
 			Some(sa) => {
 				//TODO: in case of keybase, the response might take 60s and leave the service hanging
 				match sa.method.as_ref() {
@@ -764,8 +763,7 @@ where
 		let mut slate = {
 			let mut w_lock = self.wallet_inst.lock();
 			let w = w_lock.lc_provider()?.wallet_inst()?;
-			owner::issue_invoice_tx(&mut **w, keychain_mask, args.clone(), self.doctest_mode)
-				.unwrap()
+			owner::issue_invoice_tx(&mut **w, keychain_mask, args.clone(), self.doctest_mode)?
 		};
 
 		match &args.method {
@@ -876,9 +874,68 @@ where
 		slate: &Slate,
 		args: InitTxArgs,
 	) -> Result<Slate, Error> {
-		let mut w_lock = self.wallet_inst.lock();
-		let w = w_lock.lc_provider()?.wallet_inst()?;
-		owner::process_invoice_tx(&mut **w, keychain_mask, slate, args, self.doctest_mode)
+		let mut slate = {
+			let mut w_lock = self.wallet_inst.lock();
+			let w = w_lock.lc_provider()?.wallet_inst()?;
+			owner::process_invoice_tx(
+				&mut **w,
+				keychain_mask,
+				slate,
+				args.clone(),
+				self.doctest_mode,
+			)?
+		};
+
+		// Helper functionality. If send arguments exist, attempt to send
+		match args.send_args {
+			Some(sa) => {
+				match sa.method.as_str() {
+					"file" => {
+						info!("Saving paid invoice to: {}..", &sa.dest);
+						let slate_putter = PathToSlate((&sa.dest).into());
+						slate_putter.put_tx(&slate)?;
+						self.tx_lock_outputs(keychain_mask, &slate, 0)?;
+						Ok(slate)
+					}
+					"epicbox" => {
+						// Check if given address is valid
+						match <EpicboxAddress as Address>::from_str(&sa.dest) {
+							Ok(_) => {
+								let epicbox_config_lock = self.epicbox_config.lock();
+								let epicbox_channel = Box::new(EpicboxChannel::new(
+									&sa.dest,
+									epicbox_config_lock.clone(),
+								))
+								.map_err(|e| Error::GenericError(format!("{}", e)))?;
+								let wallet = self.wallet_inst.clone();
+								let km = match keychain_mask.as_ref() {
+									None => None,
+									Some(&m) => Some(m.to_owned()),
+								};
+								info!("Sending paid invoice to: {}..", &sa.dest);
+								slate = epicbox_channel.send(wallet, km, &slate)?;
+								self.tx_lock_outputs(keychain_mask, &slate, 0)?;
+								Ok(slate)
+							}
+							Err(_) => {
+								error!("Invalid or missing dest address: '{}'", &sa.dest);
+								return Err(Error::ArgumentError(
+									"Invalid or missing dest address".to_string(),
+								));
+							}
+						}
+					}
+					method => {
+						let tor_config = self.tor_config.lock();
+						let sender = create_sender(method, &sa.dest, tor_config.clone())?;
+						slate = sender.send_tx(&slate)?;
+						self.tx_lock_outputs(keychain_mask, &slate, 0)?;
+						Ok(slate)
+					}
+				}
+			}
+			None => Ok(slate),
+		}
 	}
 
 	/// Locks the outputs associated with the inputs to the transaction in the given

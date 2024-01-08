@@ -70,12 +70,8 @@ fn prompt_password_confirm() -> ZeroingString {
 	let mut first = ZeroingString::from("first");
 	let mut second = ZeroingString::from("second");
 	while first != second {
-		first = ZeroingString::from(
-			rpassword::prompt_password_stdout("Password: ").unwrap_or("".to_string()),
-		);
-		second = ZeroingString::from(
-			rpassword::prompt_password_stdout("Confirm Password: ").unwrap_or("".to_string()),
-		);
+		first = prompt_password_stdout("Password: ");
+		second = prompt_password_stdout("Confirm Password: ");
 	}
 	first
 }
@@ -138,11 +134,18 @@ fn prompt_pay_invoice(slate: &Slate, method: &str, dest: &str) -> Result<bool, L
 		"* {} of your wallet funds will be added to the transaction to pay this invoice.",
 		amount
 	);
-	if method == "http" {
-		println!("* The resulting transaction will IMMEDIATELY be sent to the wallet listening at: '{}'.", dest);
-	} else {
-		println!("* The resulting transaction will be saved to the file '{}', which you can manually send back to the invoice creator.", dest);
+	match method {
+		"http" | "epicbox" => {
+			println!(
+				"* The resulting transaction will IMMEDIATELY be sent via {} to: '{}'.",
+				method, dest
+			);
+		}
+		_ => {
+			println!("* The resulting transaction will be saved to the file '{}', which you can manually send back to the invoice creator.", dest);
+		}
 	}
+
 	println!();
 	println!("The invoice slate's participant info is:");
 	for m in slate.participant_messages().messages {
@@ -1033,7 +1036,6 @@ where
 			command::process_invoice(
 				wallet,
 				km,
-				Some(tor_config),
 				a,
 				wallet_config.dark_background_color_scheme.unwrap_or(true),
 			)

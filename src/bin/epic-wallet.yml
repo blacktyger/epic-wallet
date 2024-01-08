@@ -268,13 +268,13 @@ subcommands:
             short: e
             long: estimate-selection
         - method:
-            help: Method for sending the processed invoice back to the invoice creator
+            help: Method for sending the processed invoice back to the invoice creator [file, http, epicbox]
             short: m
             long: method
             possible_values:
               - file
               - http
-              - self
+              - epicbox
             default_value: file
             takes_value: true
         - dest:
