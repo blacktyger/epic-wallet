@@ -121,7 +121,7 @@ where
 	}
 }
 
-pub fn prompt_pay_invoice(slate: &Slate, method: &str, dest: &str) -> Result<bool, LibwalletError> {
+fn prompt_pay_invoice(slate: &Slate, method: &str, dest: &str) -> Result<bool, LibwalletError> {
 	let interface = Arc::new(Interface::new("pay")?);
 	let amount = amount_to_hr_string(slate.amount, false);
 	interface.set_report_signal(Signal::Interrupt, true);
@@ -555,9 +555,7 @@ pub fn parse_finalize_args(args: &ArgMatches) -> Result<command::FinalizeArgs, L
 	})
 }
 
-pub fn parse_issue_invoice_args(
-	args: &ArgMatches,
-) -> Result<command::IssueInvoiceArgs, LibwalletError> {
+pub fn parse_issue_invoice_args(args: &ArgMatches) -> Result<IssueInvoiceTxArgs, LibwalletError> {
 	let amount = parse_required(args, "amount")?;
 	let amount = core::core::amount_from_hr_string(amount);
 	let amount = match amount {
@@ -591,16 +589,13 @@ pub fn parse_issue_invoice_args(
 	// transaction method
 	let method = parse_required(args, "method")?;
 
-	Ok(command::IssueInvoiceArgs {
-		method: method.into(),
-		dest: dest.into(),
-		issue_args: IssueInvoiceTxArgs {
-			dest_acct_name: None,
-			amount,
-			message,
-			target_slate_version,
-			send_args: None,
-		},
+	Ok(IssueInvoiceTxArgs {
+		dest_acct_name: None,
+		amount,
+		message,
+		target_slate_version,
+		method: Some(method.to_string()),
+		dest: Some(dest.to_string()),
 	})
 }
 
@@ -608,7 +603,6 @@ pub fn parse_process_invoice_args(
 	args: &ArgMatches,
 	prompt: bool,
 ) -> Result<command::ProcessInvoiceArgs, LibwalletError> {
-	// TODO: display and prompt for confirmation of what we're doing
 	// message
 	let message = match args.is_present("message") {
 		true => Some(args.value_of("message").unwrap().to_owned()),
@@ -1032,7 +1026,7 @@ where
 		}
 		("invoice", Some(args)) => {
 			let a = arg_parse!(parse_issue_invoice_args(&args));
-			command::issue_invoice_tx(wallet, km, Some(epicbox_config), a)
+			command::issue_invoice_tx(wallet, km, a)
 		}
 		("pay", Some(args)) => {
 			let a = arg_parse!(parse_process_invoice_args(&args, !test_mode));

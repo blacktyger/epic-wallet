@@ -40,7 +40,7 @@ use std::io::{Read, Write};
 use std::sync::Arc;
 use std::thread;
 
-use epic_wallet_libwallet::{Address, EpicboxAddress};
+use epic_wallet_libwallet::Address;
 use std::time::Duration;
 use uuid::Uuid;
 
@@ -574,21 +574,10 @@ where
 	Ok(())
 }
 
-/// Issue Invoice Args
-pub struct IssueInvoiceArgs {
-	/// transaction method [file, epicbox]
-	pub method: String,
-	/// output file
-	pub dest: String,
-	/// issue invoice tx args
-	pub issue_args: IssueInvoiceTxArgs,
-}
-
 pub fn issue_invoice_tx<L, C, K>(
 	wallet: Arc<Mutex<Box<dyn WalletInst<'static, L, C, K>>>>,
 	keychain_mask: Option<&SecretKey>,
-	epicbox_config: Option<EpicboxConfig>,
-	args: IssueInvoiceArgs,
+	args: IssueInvoiceTxArgs,
 ) -> Result<(), LibwalletError>
 where
 	L: WalletLCProvider<'static, C, K> + 'static,
@@ -596,43 +585,9 @@ where
 	K: keychain::Keychain + 'static,
 {
 	controller::owner_single_use(wallet.clone(), keychain_mask, |api, m| {
-		let slate = api.issue_invoice_tx(m, args.issue_args)?;
-
-		match args.method.as_str() {
-			"epicbox" => {
-				// Check if given address is valid
-				match <EpicboxAddress as Address>::from_str(&args.dest) {
-					Ok(_) => {
-						info!("Sending invoice to epicbox: {:?}", &args.dest);
-						let epicbox_channel =
-							Box::new(EpicboxChannel::new(&args.dest, epicbox_config))
-								.expect("error starting epicbox");
-
-						let km = match keychain_mask.as_ref() {
-							None => None,
-							Some(&m) => Some(m.to_owned()),
-						};
-
-						epicbox_channel.send(wallet, km, &slate)?;
-						info!("Invoice successfully sent, to receive the payment make sure your epicbox listener is running.");
-					}
-					Err(e) => {
-						error!("Invalid epicbox address");
-						return Err(e);
-					}
-				};
-			}
-			"file" => {
-				info!("Saving invoice to file: {:?}", &args.dest);
-				PathToSlate((&args.dest).into()).put_tx(&slate)?;
-			}
-			_ => {
-				error!("Invalid transaction method");
-			}
-		}
+		api.issue_invoice_tx(m, args.clone())?;
 		Ok(())
 	})?;
-
 	Ok(())
 }
 
@@ -686,7 +641,7 @@ where
 		} else {
 			let init_args = InitTxArgs {
 				src_acct_name: None,
-				amount: 0,
+				amount: slate.amount,
 				minimum_confirmations: args.minimum_confirmations,
 				max_outputs: args.max_outputs as u32,
 				num_change_outputs: 1u32,

@@ -35,6 +35,7 @@ use crate::libwallet::{
 use crate::util::logger::LoggingConfig;
 use crate::util::secp::key::SecretKey;
 use crate::util::{from_hex, static_secp_instance, Mutex, ZeroingString};
+use impls::{PathToSlate, SlatePutter};
 use libwallet::Address;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{channel, Sender};
@@ -760,25 +761,24 @@ where
 		keychain_mask: Option<&SecretKey>,
 		args: IssueInvoiceTxArgs,
 	) -> Result<Slate, Error> {
-		let send_args = args.send_args.clone();
 		let mut slate = {
 			let mut w_lock = self.wallet_inst.lock();
 			let w = w_lock.lc_provider()?.wallet_inst()?;
-			owner::issue_invoice_tx(&mut **w, keychain_mask, args, self.doctest_mode).unwrap()
+			owner::issue_invoice_tx(&mut **w, keychain_mask, args.clone(), self.doctest_mode)
+				.unwrap()
 		};
 
-		// Helper functionality. If send arguments exist, attempt to send
-		// TODO: Add HTTP/Tor method.
-		match send_args {
-			Some(sa) => {
-				return match sa.method.as_ref() {
+		match &args.method {
+			Some(method) => {
+				let dest = &args.dest.unwrap_or("invoice".to_string());
+				match method.as_str() {
 					"epicbox" => {
 						// Check if given address is valid
-						match <EpicboxAddress as Address>::from_str(&sa.dest) {
+						match <EpicboxAddress as Address>::from_str(dest) {
 							Ok(_) => {
 								let epicbox_config_lock = self.epicbox_config.lock();
 								let epicbox_channel = Box::new(EpicboxChannel::new(
-									&sa.dest,
+									dest,
 									epicbox_config_lock.clone(),
 								))
 								.map_err(|e| Error::GenericError(format!("{}", e)))?;
@@ -789,19 +789,27 @@ where
 								};
 								slate = epicbox_channel.send(wallet, km, &slate)?;
 								self.tx_lock_outputs(keychain_mask, &slate, 1)?;
+								info!("Invoice successfully sent to address: {}", dest);
 								Ok(slate)
 							}
-							Err(e) => {
-								error!("Invalid epicbox address");
-								Err(e)
+							Err(_) => {
+								error!("Invalid or missing dest address: '{}'", dest);
+								Err(Error::ArgumentError(
+									"Invalid or missing dest address".to_string(),
+								))
 							}
 						}
 					}
+					"file" => {
+						info!("Saving invoice to a file: {:?}", dest);
+						PathToSlate((dest).into()).put_tx(&slate)?;
+						Ok(slate)
+					}
 					_ => {
-						error!("Unsupported payment method: {}", sa.method);
+						error!("Unsupported payment method: '{}'", method);
 						Err(Error::ClientCallback("Unsupported payment method".to_owned()).into())
 					}
-				};
+				}
 			}
 			None => Ok(slate),
 		}

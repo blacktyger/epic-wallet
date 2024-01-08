@@ -240,7 +240,7 @@ subcommands:
             help: Transaction method used to send the invoice [file, epicbox]
             short: m
             long: method
-            default_value: "file"
+            default_value: file
             takes_value: true
             possible_values:
               - file

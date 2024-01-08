@@ -227,7 +227,7 @@ impl EpicboxChannel {
 	}
 }
 
-pub fn prompt_pay_invoice(slate: &Slate) -> Result<bool, LibwalletError> {
+fn prompt_pay_invoice(slate: &Slate) -> Result<bool, LibwalletError> {
 	let interface = Arc::new(Interface::new("pay")?);
 	let amount = amount_to_hr_string(slate.amount, false);
 	let fees = amount_to_hr_string(slate.fee, true);
